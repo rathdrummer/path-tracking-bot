@@ -5,6 +5,8 @@ Studio 4 with the Lokarria interface.
 Author: Adam Kavanagh Coyne
 
 Quaternion functions and additional formatting taken from example code by Erik Billing given in the AI class from Umea University.
+
+NOTE: This is the Python 3 version. To work in Python 2, all instances of the "http.client" package should be replaced by "httplib".
 """
 
 import http.client, json, time
@@ -33,7 +35,9 @@ class Robot(object):
         self.updateAttributes()
 
     def serverGet(self, command):
-        """Sends a GET request to the MRDS server"""
+        """Sends a GET request to the MRDS server
+        :param command: the specific directory requested
+        """
         mrds = http.client.HTTPConnection(self.server)
         mrds.request('GET',command)
         return mrds.getresponse()
@@ -52,8 +56,7 @@ class Robot(object):
         if status == 204:
             return response
         else:
-            print("Unexpected response from server! Angular speed may not be set")
-            return null
+            return UnexpectedResponse(response)
 
     def setLinearSpeed(self, speed):
         """Sets linear speed of the bot by sending a command to the server"""
@@ -63,8 +66,7 @@ class Robot(object):
         if status == 204:
             return response
         else:
-            print("Unexpected response from server! Linear speed may not be set")
-            return null
+            return UnexpectedResponse(response)
 
     def setSpeed(self,angularSpeed,linearSpeed):
         """Sets speed of the bot by sending a command to the server"""
@@ -74,8 +76,7 @@ class Robot(object):
         if status == 204:
             return response
         else:
-            print("Unexpected response from server! Speed may not be set")
-            return null
+            return UnexpectedResponse(response)
 
     def getLaser(self):
         """Returns the laser properties from the server as a dictionary"""
@@ -93,8 +94,7 @@ class Robot(object):
             #angles.append(properties['EndAngle']-properties['AngleIncrement']/2)
             return angles
         else:
-            print("Unexpected response from server! No laser data acquired")
-            return null
+            return UnexpectedResponse(response)
 
     def getLaserAngles(self):
         #Do we need this?
