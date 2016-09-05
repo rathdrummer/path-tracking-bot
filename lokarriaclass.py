@@ -107,7 +107,12 @@ class Robot(object):
         if (response.status == 200):
             poseData = response.read()
             response.close()
-            return json.loads(poseData)
+            result = ''
+            try:
+                result = json.loads(poseData)
+            except (Error):
+                result = json.loads(poseData.decode("utf-8"))
+            return result
         else:
             return UnexpectedResponse(response)
         
