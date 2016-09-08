@@ -15,23 +15,27 @@ from math import sin,cos,pi,atan2
 URL = 'localhost:50000'
 HEADERS = {"Content-type": "application/json", "Accept": "text/json"}
 FILENAME = 'Path-to-bed.json'
+BEARING_THRESHOLD = 0.1
+DISTANCE_THRESHOLD = 0.1
 
 class UnexpectedResponse(Exception): pass
 
 class Robot(object):
-    """Represents the robot to facilitate function calls and code readability. Has the following properties:
+    """Represents the robot to facilitate function calls and code readability.
 
     Attributes:
         server: a string for the url of the MRDS server (running the simulation)
+        path: 
         x: the x spatial coordinate for the position of the robot
         y: the y spatial coordinate
         z: the z spatial coordinate
         heading: the heading of the robot (angle)
     """
 
-    def __init__(self, server):
-        """Return a Robot after logging the *server* attribute with no other"""
+    def __init__(self, server, pathFilename):
+        """Return a Robot after reading and storing both server URL and JSON path"""
         self.server = server
+        self.path = openJsonTrajectory(pathFilename)
         self.updateAttributes()
 
     def serverGet(self, command):
@@ -119,7 +123,6 @@ class Robot(object):
             self.heading = toHeading(pose['Pose']['Orientation'])
             self.x = pose['Pose']['Position']['Y']
             self.y = pose['Pose']['Position']['Y']
-            self.z = pose['Pose']['Position']['Z']
         except (ConnectionRefusedError):
             print("Connection to server refused. Are you sure you have the right address?")
 
@@ -130,10 +133,58 @@ class Robot(object):
         return (angle-self.heading)
 
     def distanceTo(self, coordinates):
-        dX = coordinates['X']-self.x
-        dY = coordinates['Y']-self.y
-        distance = sqrt(dx^2+dy^2)
+        """Returns the distance between the robot and a given point
+        :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively
+        """
+        dx = coordinates['X']-self.x
+        dy = coordinates['Y']-self.y
+        return sqrt(dx^2+dy^2)
+        
+    def lookAhead(self, distance):
+        """Returns the coordinates of a point at a given distance in front of the robot (as a dict)"""
+        yp = self.y - distance * cos(self.heading)
+        xp = self.x - distance * sin(self.heading)
+        point={'X':xp,'Y':yp}
+        return point
+        
+    def goToPoint(self, coordinates):
+        """Moves the robot in a straight line to a given point. Follows a 2-step system; 
+        1. Orient heading towards point. 2. Move in straight line; Once in close range of point, stop.
+        May be inefficient; no new process, spams server requests for data...
+        Also big problem; will never stop unless it comes in distance of the point. Be careful with distance threshold.
+        :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively.
+        """
+        #Part 1: Turn to aim at point
+        self.updateAttributes()
+        bearing = self.getBearing(coordinates)
+        if (bearing > BEARING_THRESHOLD || bearing < 2*pi()-BEARING_THRESHOLD):
+            if (bearing > pi()):
+                #Set speed to turn anticlockwise
+            else:
+                #Set speed to turn clockwise
+            while (self.getBearing(coordinates) > BEARING_THRESHOLD || self.getBearing(coordinates) < 2*pi()-BEARING_THRESHOLD): #While the robot isn't pointing at dest
+                self.updateAttributes()
+        #Is pointing ok, stop turning
+        self.setSpeed(0,0)
+            
+        #Part 2: Move forward until point is reached
+        if (self.distanceTo(coordinates) > DISTANCE_THRESHOLD):
+            self.setLinearSpeed(0.5)
+            while (self.distanceTo(coordinates) > DISTANCE_THRESHOLD):
+                self.updateAttributes()
+        #Arrived at point, stop moving
+        self.setSpeed(0,0)
 
+
+    
+def distanceBetween(p1,p2):
+    """Returns the distance between two points
+    :param p1: The first point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively 
+    :param p2: The second point (identical system to p1)
+    """
+    dx = p1['Y']-p2['Y']
+    dy = p1['X']-p2['X']
+    return sqrt(dx^2+dy^2)
     
 def toHeading(q):
     return rotate(q,{'X':1.0,'Y':0.0,"Z":0.0})
@@ -175,5 +226,5 @@ def openJsonTrajectory(file):
     
 print("Compiled!")
 
-r1 = Robot(URL)
+r1 = Robot(URL,FILENAME)
 print("Robot made.")
