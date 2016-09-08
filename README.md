@@ -8,9 +8,11 @@ The point of the extensive functionality implementation was to make the algorith
 
 Notable implemented features:
 - Robot class: allows for easy update and treatment of coordinates. Calling updateAttributes() updates the Robot's stored coordinates i.e. xyz position and heading. Other object methods include getDistance(x,y), getBearing(x,y)..
+- Quick and easy pose calculation functions (distanceBetween(p1,p2), lookAhead(distance)...)
+- goToPoint(coordinate): moves the robot to a given coordinate by rotating, moving forward, then stopping once reached.
 
 
--- Path tracking algorithm to be implemented : Pure Pursuit --
+-- Path tracking algorithm to be implemented : Carrot on a Stick / Pure Pursuit --
 
 A "carrot point" is placed at a short distance ahead of the bot. The bot heads towards this point. Once close enough, the carrot point is then shifted further along the path.
 This tracking method alone is known as "carrot on a stick" and leads to erratic oscillations around the path. To counter this, instead of heading directly towards the carrot point, an arc is calculated between the robot and the point, based on the robot's heading. The robot follows the arc towards the point. This improved method is Pure Pursuit. It will be more stable than Carrot on a Stick, but possibly slower?
