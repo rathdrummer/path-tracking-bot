@@ -15,8 +15,12 @@ from math import sin,cos,pi,atan2
 URL = 'localhost:50000'
 HEADERS = {"Content-type": "application/json", "Accept": "text/json"}
 FILENAME = 'Path-to-bed.json'
+
+#goToPoint() constants
 BEARING_THRESHOLD = 0.1
 DISTANCE_THRESHOLD = 0.1
+GOTOPOINT_ANG_SPEED = 1
+GOTOPOINT_LIN_SPEED = 0.5
 
 class UnexpectedResponse(Exception): pass
 
@@ -151,29 +155,43 @@ class Robot(object):
         """Moves the robot in a straight line to a given point. Follows a 2-step system; 
         1. Orient heading towards point. 2. Move in straight line; Once in close range of point, stop.
         May be inefficient; no new process, spams server requests for data...
-        Also big problem; will never stop unless it comes in distance of the point. Be careful with distance threshold.
+        Will stop if it starts moving away from point.
+        Returns 0 if point reached (with a tolerance of DISTANCE_THRESHOLD), or 1 if robot was detected moving away from point.
         :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively.
         """
         #Part 1: Turn to aim at point
+        self.setSpeed(0,0)
         self.updateAttributes()
         bearing = self.getBearing(coordinates)
-        if (bearing > BEARING_THRESHOLD || bearing < 2*pi()-BEARING_THRESHOLD):
+        if (bearing > BEARING_THRESHOLD or bearing < 2*pi()-BEARING_THRESHOLD):
             if (bearing > pi()):
-                #Set speed to turn anticlockwise
+                self.setAngularSpeed(GOTOPOINT_ANG_SPEED)
             else:
-                #Set speed to turn clockwise
-            while (self.getBearing(coordinates) > BEARING_THRESHOLD || self.getBearing(coordinates) < 2*pi()-BEARING_THRESHOLD): #While the robot isn't pointing at dest
+                self.setAngularSpeed(-GOTOPOINT_ANG_SPEED)
+            while (self.getBearing(coordinates) > BEARING_THRESHOLD or self.getBearing(coordinates) < 2*pi()-BEARING_THRESHOLD): #While the robot isn't pointing at dest
                 self.updateAttributes()
         #Is pointing ok, stop turning
         self.setSpeed(0,0)
             
         #Part 2: Move forward until point is reached
         if (self.distanceTo(coordinates) > DISTANCE_THRESHOLD):
-            self.setLinearSpeed(0.5)
-            while (self.distanceTo(coordinates) > DISTANCE_THRESHOLD):
+            self.setLinearSpeed(GOTOPOINT_LIN_SPEED)
+            while (self.distanceTo(coordinates) > DISTANCE_THRESHOLD and previousDistance >= self.distanceTo(coordinates)):
+                #Wait 100ms here maybe?
+                previousDistance = self.distanceTo(coordinates)
                 self.updateAttributes()
-        #Arrived at point, stop moving
+            if (previousDistance < self.distanceTo(coordinates)):
+                print("Started moving away from point, stopping")
+                result = 1
+            else:
+                print("Distance threshold reached, stopping")
+                result = 0
+        else:
+            print("Already close to point")
+            result = 0
+        #Stop moving
         self.setSpeed(0,0)
+        return result
 
 
     
