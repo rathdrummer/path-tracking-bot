@@ -249,3 +249,7 @@ print("Robot made.")
 print("Initial coordinate read from file:")
 
 print(r1.path[1])
+
+# Hey man, here's an example of how to go through the path data structure ;)
+# print(r1.path[2]['Pose']['Position']['X'])
+
