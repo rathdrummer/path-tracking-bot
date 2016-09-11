@@ -29,7 +29,7 @@ class Robot(object):
 
     Attributes:
         server: a string for the url of the MRDS server (running the simulation)
-        path: 
+        path: the series of coordinates read from JSON file dictating path
         x: the x spatial coordinate for the position of the robot
         y: the y spatial coordinate
         z: the z spatial coordinate
@@ -246,3 +246,6 @@ print("Compiled!")
 
 r1 = Robot(URL,FILENAME)
 print("Robot made.")
+print("Initial coordinate read from file:")
+
+print(r1.path[1])
