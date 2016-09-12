@@ -113,9 +113,9 @@ class Robot(object):
         """Reads the current position and orientation from the MRDS"""
         response = self.serverGet('/lokarria/localization')
         if (response.status == 200):
-            poseData = response.read()
+            poseStr = response.readall().decode('utf-8')
             response.close()
-            return json.loads(poseData)
+            return json.loads(poseStr)
         else:
             return UnexpectedResponse(response)
         
