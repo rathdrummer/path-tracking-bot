@@ -16,11 +16,12 @@ FILENAME = 'Path-around-table-and-back.json'
 
 
 BEARING_THRESHOLD = 0.1
-DISTANCE_THRESHOLD = 0.7
-GOTOPOINT_ANG_SPEED = 1
+DISTANCE_THRESHOLD = 0.5
+GOTOPOINT_ANG_SPEED = 2
 GOTOPOINT_LIN_SPEED = 0.7
 DISTANCE_BETWEEN_CARROT_POINTS=0.3
-TICK=0.05
+TICK_DURATION=0.05
+CLOSE_BEARING = 1
 
 ##px=[0.5,0.5,0,0.5,0,0.5,0,0]
 ##py=[0,0.5,1,1.5,1.5,1,0.5,0]
@@ -124,7 +125,6 @@ class Robot(object):
         response = self.serverGet('/lokarria/localization')
         if (response.status == 200):
             poseStr = response.read()
-##            print('Response ok')
             response.close()
             return json.loads(poseStr)
         else:
@@ -132,13 +132,10 @@ class Robot(object):
         
     def updateAttributes(self):
         """Updates the robot pose attributes, heading and coordinates, but not speeds."""
-        try:
-            pose = self.getPose()
-            self.heading = toHeading(pose['Pose']['Orientation'])
-            self.x = pose['Pose']['Position']['X']
-            self.y = pose['Pose']['Position']['Y']
-        except:
-            print("updateAttributes Error: Connection to server refused. Are you sure you have the right address?")
+        pose = self.getPose()
+        self.heading = toHeading(pose['Pose']['Orientation'])
+        self.x = pose['Pose']['Position']['X']
+        self.y = pose['Pose']['Position']['Y']
 
     def getBearing(self, coordinates):
         dX = coordinates['X']-self.x
@@ -173,50 +170,53 @@ class Robot(object):
         
     def goToPoint(self, coordinates):
         """Adjusts the robot's trajectory to head towards a point; a continuous adaptation of the previous 2-step version goToPoint
-        Made to be looped in rapid succession (every 100ms).
+        Made to be looped for every point then stopped.
         If point reached (as per DISTANCE_THRESHOLD standard) then returns 1, else returns 0
         :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively.
         """
-        result=True
-        while (result):
+        result=False
+        while (result==False):
             self.updateAttributes()
-            time.sleep(TICK)
+            time.sleep(TICK_DURATION)
             
             bearing = self.getBearing(coordinates)
             distance = self.distanceTo(coordinates)
 
-            if (bearing>BEARING_THRESHOLD):
-                angularSpeed = GOTOPOINT_ANG_SPEED
+            if bearing>BEARING_THRESHOLD: ## Need to turn left, how fast?
+                if bearing<CLOSE_BEARING:
+                    angularSpeed = GOTOPOINT_ANG_SPEED/3 ## 1/3 turning speed
+                else:
+                    angularSpeed = GOTOPOINT_ANG_SPEED ## Full turning speed
+                    
+            elif bearing<-BEARING_THRESHOLD: ## Need to turn right (same)
+                if bearing>-CLOSE_BEARING:
+                    angularSpeed = -GOTOPOINT_ANG_SPEED/3
+                else:
+                    angularSpeed = -GOTOPOINT_ANG_SPEED
                 
-            elif (bearing<-BEARING_THRESHOLD):
-                angularSpeed = -GOTOPOINT_ANG_SPEED
-                
-            else:
+            else: ## Going the right way
                 angularSpeed = 0
            
-            if (distance>DISTANCE_THRESHOLD):
-                result=True
-            else:
-                result=False
+            result = (distance<DISTANCE_THRESHOLD) ## 
 
             self.setSpeed(angularSpeed,GOTOPOINT_LIN_SPEED)
 
-
+        return result
 
 
 
     def chooseCarrotPoints(self,distance):
-        px=[]
-        py=[]
-        px.append(self.path[0]['Pose']['Position']['X'])
-        py.append(self.path[0]['Pose']['Position']['Y'])
-        for i in range(0,len(self.path)):
-            x=self.path[i]['Pose']['Position']['X']
-            y=self.path[i]['Pose']['Position']['Y']
-            if (sqrt((px[len(px)-1]-x)**2+(py[len(py)-1]-y)**2)>distance):
-                px.append(x)
-                py.append(y)
-        return [px,py]
+        points=[]
+        points.append(self.path[0]['Pose']['Position'])
+        
+        for coord in self.path:
+            x=coord['Pose']['Position']['X']
+            y=coord['Pose']['Position']['Y']
+            
+            if (distanceBetween(coord['Pose']['Position'],points[-1])>distance):
+                points.append(coord['Pose']['Position'])
+
+        return points
             
             
 
@@ -294,31 +294,18 @@ if __name__ == "__main__":
     r1.setSpeed(0.1,0)                    #Set intial angular and linear velocity to zero
     print('Robot intial coordinates and heading: X: ',r1.x,' Y: ',r1.y,' Heading: ',r1.heading)
 
-    coordinates = {'X':0.5,'Y':0.5}
-
-##    while (True):
-##        r1.updateAttributes()
-##        time.sleep(0.1)
-##            
-##        bearing = r1.getBearing(coordinates)
-##        if (bearing>BEARING_THRESHOLD or bearing<-BEARING_THRESHOLD):
-##            print "not facing coords"
-##        else:
-##            print "Facing coords!"
     
     # Choose carrot points at a particular distance 'DISTANCE_BETWEEN_CARROT_POINTS' from each point
-    [Cx,Cy]=r1.chooseCarrotPoints(DISTANCE_BETWEEN_CARROT_POINTS)
-    print Cx
-    print Cy
+    points=r1.chooseCarrotPoints(DISTANCE_BETWEEN_CARROT_POINTS)
 
 
     # Follow the predefined path
     print "Timer started"
     time_start=time.time()
     print "Path following started"
-    for i in range(0,len(Cx)):
-        print('Next carrot point:',Cx[i],Cy[i])
-        r1.goToPoint({'X':Cx[i],'Y':Cy[i]})
+    for carrotPoint in points:
+        print('Next carrot point:',carrotPoint)
+        r1.goToPoint(carrotPoint)
     print "Path following completed successfully"
     r1.setSpeed(0,0)
     time_traversed = time.time()- time_start
