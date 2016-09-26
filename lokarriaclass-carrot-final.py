@@ -2,12 +2,12 @@
 Commands a robot to follow a given path in Microsoft Robotic Developer
 Studio 4 with the Lokarria interface.
 Authors: Adam Kavanagh Coyne & Shanmuganathan Sabarisathasivam
-Quaternion functions and additional formatting taken from example code by Erik Billing given in the AI class from Umea University.
-NOTE: This is the Python 2.7 version. To work in Python 3, all instances of the "httplib" package should be replaced by "httplib".
+Functions rotate, vector, qmult, quaternion, conjugate, cosAngle (previously "heading") taken from example code by Erik Billing given in the AI class from Umea University.
+NOTE: This is the Python 2.7 version. To work in Python 3, all instances of the "httplib" package should be replaced by "http.client".
 """
 
-import httplib, json, time
-from math import sin,cos,pi,atan2,asin,sqrt,acos,exp
+import httplib, json, time, sys, math
+#from math import sin,cos,pi,atan2,asin,sqrt,acos,exp
 
 ## Interfacing constants
 URL = 'localhost:50000'
@@ -180,10 +180,9 @@ def distanceBetween(p1,p2):
     dy = p1['X']-p2['X']
     return sqrt(pow(dx,2)+pow(dy,2))
 
-def heading(q):
+def cosAngle(q):
     """Derives angle cosines from quaternion orientation (which is what is given by MRDS)
-    Functions rotate, vector, qmult, quaternion, conjugate are all used here for this task.
-    All quaternion functions were provided in sample code for assignment.
+    Functions rotate, vector, qmult, quaternion, conjugate, cosAngle are all used here for this task, and were provided in sample code for assignment.
     """
     return rotate(q,{'X':1.0,'Y':0.0,"Z":0.0})
 
@@ -225,7 +224,7 @@ def openJsonTrajectory(file):
         
 def toHeading(q):
     """Converts quaternion to XY-plane Euler angle in radians"""
-    v=heading(q)
+    v=cosAngle(q)
     angle=atan2(v['Y'],v['X'])
     # Angle normalisation
     if angle>0:
@@ -242,6 +241,9 @@ def coefficient(bearing):
     
 if __name__ == "__main__":
     
+    if len(sys.argv) >= 2: # if filename specified as argument, use instead of internal variable
+        FILENAME = sys.argv[1]
+        
     r1 = Robot(URL,FILENAME)
     print("Robot made.")
 
@@ -257,15 +259,11 @@ if __name__ == "__main__":
     carrotPoint=r1.path[prevPointInd]['Pose']['Position'] # First point
     print "Path following started with path: ", FILENAME
     
-    while (not atDestination):
+    while not atDestination:
         lookAheadPoint=r1.lookAhead(LOOK_AHEAD_DISTANCE) # The point a certain distance ahead of the robot
         time.sleep(TICK_DURATION)
-
-        prevPointDistance=distanceBetween(r1.path[prevPointIndex]['Pose']['Position'], lookAheadPoint)
-        carrotPoint=r1.path[prevPointIndex]['Pose']['Position']
-        currentPointIndex=prevPointIndex
         
-        # Get range of path points to scan (as many as path will allow up to LA_THRESHOLD points ahead of current point)
+        # Get range of path points to scan (as many as path will allow to a maximum of LA_THRESHOLD points ahead of current point)
         if len(r1.path)<prevPointIndex+LA_THRESHOLD:
             lastIndex = len(r1.path)-1 # Scan points until end of path
             if r1.distanceTo(r1.path[-1]['Pose']['Position'])<DISTANCE_THRESHOLD: # if we are within DISTANCE_THRESHOLD from the final point
@@ -291,7 +289,7 @@ if __name__ == "__main__":
         r1.goToPoint(carrotPoint)
     
     # Destination Reached
-    time_traversed = time.time()- time_start                    # Stop the Timer
+    time_traversed = time.time() - time_start                    # Stop the Timer
     print "Path following completed successfully"
     print "Time taken for following the path = ",time_traversed
     r1.setSpeed(0,0)                                            # Stop the robot
