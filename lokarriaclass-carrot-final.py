@@ -9,22 +9,19 @@ NOTE: This is the Python 2.7 version. To work in Python 3, all instances of the 
 import httplib, json, time
 from math import sin,cos,pi,atan2,asin,sqrt,acos,exp
 
-
+## Interfacing constants
 URL = 'localhost:50000'
 HEADERS = {"Content-type": "application/json", "Accept": "text/json"}
 FILENAME = 'Path-around-table-and-back.json'
 
-BEARING_THRESHOLD = 0.1
-DISTANCE_THRESHOLD = 0.5
-GOTOPOINT_ANG_SPEED = 3
-GOTOPOINT_LIN_SPEED = 1
-DISTANCE_BETWEEN_CARROT_POINTS=0.3
-TICK_DURATION=0.01
-CLOSE_BEARING = 1.5
-LOOK_AHEAD_DISTANCE = 1.5
-LA_THRESHOLD=400
+## Physical constants
+DISTANCE_THRESHOLD = 0.5 # The distance the robot has to be from a point for it to be considered "reached".
+GOTOPOINT_ANG_SPEED = 3 # Maximum angular speed the robot can move at (is scaled down based on bearing, see coefficientfunc)
+GOTOPOINT_LIN_SPEED = 1 # Maximum linear speed the robot can move at (is reduced as angular speed increases)
+TICK_DURATION=0.01 # Time between each algorithm loop. Too short a tick can saturate the socket used to communicate with the robot.
+LOOK_AHEAD_DISTANCE = 1.5 # Distance in front of robot to search for next carrot point (see report for details)
+LA_THRESHOLD=400 # Look-ahead threshold: maximum range of points in front of current in which to search for carrot point (to avoid overzealous corner cuttinig)
 
-class UnexpectedResponse(Exception): pass
 
 class Robot(object):
     """Represents the robot to facilitate function calls and code readability.
@@ -34,21 +31,17 @@ class Robot(object):
         x: the x spatial coordinate for the position of the robot
         y: the y spatial coordinate
         z: the z spatial coordinate
-        linearSpeed: self-explanatory
-        angularSpeed: idem
         heading: the heading of the robot (angle)
     """
 
     def __init__(self, server, pathFilename):
-        """Return a Robot after reading and storing both server URL and JSON path"""
+        """Return a Robot after reading and storing both server URL and JSON path, then updating internal attributes"""
         self.server = server
         self.path = openJsonTrajectory(pathFilename)
-        self.linearSpeed = 0.0
-        self.angularSpeed = 0.0
         self.updateAttributes()
 
     def serverGet(self, command):
-        """Sends a GET request to the MRDS server
+        """Sends a GET request to the MRDS server (used for getting attributes)
         :param command: the specific directory requested
         """
         mrds = httplib.HTTPConnection(self.server)
@@ -56,7 +49,7 @@ class Robot(object):
         return mrds.getresponse()
 
     def serverJsonPost(self, json):
-        """Sends a JSON POST command to the MRDS server (used for defining speeds)"""
+        """Sends a JSON POST command to the MRDS server (used for setting speeds)"""
         mrds = httplib.HTTPConnection(self.server)
         mrds.request('POST','/lokarria/differentialdrive',json,HEADERS)
         return mrds.getresponse()
@@ -67,7 +60,6 @@ class Robot(object):
         response = self.serverJsonPost(param)
         status = response.status
         if status == 204:
-            self.angularSpeed = speed
             return response
         else:
             return UnexpectedResponse(response)
@@ -78,7 +70,6 @@ class Robot(object):
         response = self.serverJsonPost(param)
         status = response.status
         if status == 204:
-            self.linearSpeed = speed
             return response
         else:
             return UnexpectedResponse(response)
@@ -89,8 +80,6 @@ class Robot(object):
         response = self.serverJsonPost(param)
         status = response.status
         if status == 204:
-            self.linearSpeed = linearSpeed
-            self.angularSpeed = angularSpeed
             return response
         else:
             return UnexpectedResponse(response)
@@ -118,7 +107,9 @@ class Robot(object):
         pass
 
     def getPose(self):
-        """Reads the current position and orientation from the MRDS"""
+        """Reads the current position and orientation from the MRDS
+        Returns a dictionary of pose data.
+        """
         response = self.serverGet('/lokarria/localization')
         if (response.status == 200):
             poseStr = response.read()
@@ -128,13 +119,16 @@ class Robot(object):
             return UnexpectedResponse(response)
         
     def updateAttributes(self):
-        """Updates the robot pose attributes, heading and coordinates, but not speeds."""
+        """Updates the robot pose attributes, heading and coordinates, not speeds."""
         pose = self.getPose()
         self.heading = toHeading(pose['Pose']['Orientation'])
         self.x = pose['Pose']['Position']['X']
         self.y = pose['Pose']['Position']['Y']
 
     def getBearing(self, coordinates):
+        """Gets the angle in radians between robot's current heading and heading defined by point
+        :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively
+        """
         dX = coordinates['X']-self.x
         dY = coordinates['Y']-self.y
         angle = atan2(dY,dX)
@@ -164,8 +158,7 @@ class Robot(object):
         
     def goToPoint(self, coordinates):
         """Adjusts the robot's trajectory to head towards a point; a continuous adaptation of the previous 2-step version goToPoint
-        Made to be looped for every point then stopped.
-        If point reached (as per DISTANCE_THRESHOLD standard) then returns 1, else returns 0
+        Made to be looped for every point.
         :param p1: The point, dictionary containing at least the x and y coordinates under indices 'X' and 'Y' respectively.
         """
         self.updateAttributes()
@@ -174,20 +167,9 @@ class Robot(object):
         if bearing>0: 
             angularSpeed=coefficient(bearing)*GOTOPOINT_ANG_SPEED
         else:
-            angularSpeed=coefficient(bearing)*(-GOTOPOINT_ANG_SPEED)
+            angularSpeed=-coefficient(bearing)*GOTOPOINT_ANG_SPEED
         self.setSpeed(angularSpeed,GOTOPOINT_LIN_SPEED)
         
-    def chooseCarrotPoints(self,distance):
-        points=[]
-        points.append(self.path[0]['Pose']['Position'])        
-        for coord in self.path:
-            x=coord['Pose']['Position']['X']
-            y=coord['Pose']['Position']['Y']
-            
-            if (distanceBetween(coord['Pose']['Position'],points[-1])>distance):
-                points.append(coord['Pose']['Position'])
-
-        return points
 
 def distanceBetween(p1,p2):
     """Returns the distance between two points
@@ -199,6 +181,10 @@ def distanceBetween(p1,p2):
     return sqrt(pow(dx,2)+pow(dy,2))
 
 def heading(q):
+    """Derives angle cosines from quaternion orientation (which is what is given by MRDS)
+    Functions rotate, vector, qmult, quaternion, conjugate are all used here for this task.
+    All quaternion functions were provided in sample code for assignment.
+    """
     return rotate(q,{'X':1.0,'Y':0.0,"Z":0.0})
 
 def rotate(q,v):
@@ -232,64 +218,79 @@ def qmult(q1,q2):
     return q
 
 def openJsonTrajectory(file):
+    """Opens a JSON file (trajectory) and returns data as Python object"""
     with open(file) as f:
         content = f.read()
         return json.loads(content)
         
 def toHeading(q):
+    """Converts quaternion to XY-plane Euler angle in radians"""
     v=heading(q)
-    angle= atan2(v['Y'],v['X'])
+    angle=atan2(v['Y'],v['X'])
+    # Angle normalisation
     if angle>0:
         return angle
     else:
         return 2*pi+angle
 
-def coefficient(angle):
-    return 1-exp(-2*angle**2)
+def coefficient(bearing):
+    """Returns a ratio used to scale down angular speed based on bearing"""
+    return 1-exp(-2*bearing**2)
        
+    
+    
+    
 if __name__ == "__main__":
     
     r1 = Robot(URL,FILENAME)
     print("Robot made.")
-    
+
     r1.setSpeed(0,0)                    #Set intial angular and linear velocity to zero
     print('Robot intial coordinates and heading: X: ',r1.x,' Y: ',r1.y,' Heading: ',r1.heading)
-    
-## Choose carrot points at a particular distance 'DISTANCE_BETWEEN_CARROT_POINTS' from each point
-##    points=r1.chooseCarrotPoints(DISTANCE_BETWEEN_CARROT_POINTS)
 
-## Follow the predefined path
+    # Follow the predefined path
     print "Timer started"
     time_start=time.time() 
-    prevPointInd=0
+    
+    prevPointIndex=0 # Index of first point is zero
     atDestination=False
-    carrotPoint=r1.path[prevPointInd]['Pose']['Position']
-    print "Path following started with the path in the file", FILENAME
+    carrotPoint=r1.path[prevPointInd]['Pose']['Position'] # First point
+    print "Path following started with path: ", FILENAME
+    
     while (not atDestination):
-        point=r1.lookAhead(LOOK_AHEAD_DISTANCE)
+        lookAheadPoint=r1.lookAhead(LOOK_AHEAD_DISTANCE) # The point a certain distance ahead of the robot
         time.sleep(TICK_DURATION)
 
-        prevPointDistance=distanceBetween(r1.path[prevPointInd]['Pose']['Position'], point)
-        carrotPoint=r1.path[prevPointInd]['Pose']['Position']
-        index=prevPointInd
+        prevPointDistance=distanceBetween(r1.path[prevPointIndex]['Pose']['Position'], lookAheadPoint)
+        carrotPoint=r1.path[prevPointIndex]['Pose']['Position']
+        currentPointIndex=prevPointIndex
         
-        if len(r1.path)<prevPointInd+LA_THRESHOLD:
-            lastInd = len(r1.path)-1            
-            if r1.distanceTo(r1.path[-1]['Pose']['Position'])<DISTANCE_THRESHOLD:
+        # Get range of path points to scan (as many as path will allow up to LA_THRESHOLD points ahead of current point)
+        if len(r1.path)<prevPointIndex+LA_THRESHOLD:
+            lastIndex = len(r1.path)-1 # Scan points until end of path
+            if r1.distanceTo(r1.path[-1]['Pose']['Position'])<DISTANCE_THRESHOLD: # if we are within DISTANCE_THRESHOLD from the final point
                 atDestination=True
         else:
-            lastInd = prevPointInd+LA_THRESHOLD        
-        for i in range(prevPointInd,lastInd):
-            distance=distanceBetween(r1.path[i]['Pose']['Position'], point)
-
-            if distance<prevPointDistance:
+            lastIndex = prevPointIndex+LA_THRESHOLD # Scan up to LA_THRESHOLD points ahead of current point
+            
+        # Scan points for closest in path to lookAheadPoint, track its coordinates and index
+        prevPointDistance=distanceBetween(r1.path[prevPointIndex]['Pose']['Position'], lookAheadPoint)
+        carrotPoint=r1.path[prevPointIndex]['Pose']['Position']
+        carrotPointIndex=prevPointIndex
+        
+        for i in range(prevPointIndex,lastIndex):
+            distance=distanceBetween(r1.path[i]['Pose']['Position'], lookAheadPoint)
+            if distance < prevPointDistance:
                 carrotPoint=r1.path[i]['Pose']['Position']
-                index=i
+                carrotPointIndex=i
                 prevPointDistance=distance
-        prevPointInd=index
-## Go to this point
+                
+        prevPointIndex=carrotPointIndex
+        
+        # Adjust trajectory towards this point
         r1.goToPoint(carrotPoint)
-## Destination Reached
+    
+    # Destination Reached
     time_traversed = time.time()- time_start                    # Stop the Timer
     print "Path following completed successfully"
     print "Time taken for following the path = ",time_traversed
