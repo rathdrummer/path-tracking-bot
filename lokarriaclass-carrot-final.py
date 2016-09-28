@@ -6,8 +6,8 @@ Functions rotate, vector, qmult, quaternion, conjugate, cosAngle (previously "he
 NOTE: This is the Python 2.7 version. To work in Python 3, all instances of the "httplib" package should be replaced by "http.client".
 """
 
-import httplib, json, time, sys, math
-#from math import sin,cos,pi,atan2,asin,sqrt,acos,exp
+import httplib, json, time, sys
+from math import sin,cos,pi,atan2,asin,sqrt,acos,exp
 
 ## Interfacing constants
 URL = 'localhost:50000'
@@ -15,13 +15,14 @@ HEADERS = {"Content-type": "application/json", "Accept": "text/json"}
 FILENAME = 'Path-around-table-and-back.json'
 
 ## Physical constants
-DISTANCE_THRESHOLD = 0.5 # The distance the robot has to be from a point for it to be considered "reached".
-GOTOPOINT_ANG_SPEED = 3 # Maximum angular speed the robot can move at (is scaled down based on bearing, see coefficientfunc)
-GOTOPOINT_LIN_SPEED = 1 # Maximum linear speed the robot can move at (is reduced as angular speed increases)
-TICK_DURATION=0.01 # Time between each algorithm loop. Too short a tick can saturate the socket used to communicate with the robot.
-LOOK_AHEAD_DISTANCE = 1.5 # Distance in front of robot to search for next carrot point (see report for details)
-LA_THRESHOLD=400 # Look-ahead threshold: maximum range of points in front of current in which to search for carrot point (to avoid overzealous corner cuttinig)
+DISTANCE_THRESHOLD = 0.5            # The distance the robot has to be from a point for it to be considered "reached".
+GOTOPOINT_ANG_SPEED = 3             # Maximum angular speed the robot can move at (is scaled down based on bearing, see coefficientfunc)
+GOTOPOINT_LIN_SPEED = 1             # Maximum linear speed the robot can move at (is reduced as angular speed increases)
+TICK_DURATION=0.01                  # Time between each algorithm loop. Too short a tick can saturate the socket used to communicate with the robot.
+LOOK_AHEAD_DISTANCE = 1.5           # Distance in front of robot to search for next carrot point (see report for details)
+LA_THRESHOLD=300                    # Look-ahead threshold: maximum range of points in front of current in which to search for carrot point (to avoid overzealous corner cuttinig)
 
+class UnexpectedResponse(Exception): pass
 
 class Robot(object):
     """Represents the robot to facilitate function calls and code readability.
@@ -83,28 +84,6 @@ class Robot(object):
             return response
         else:
             return UnexpectedResponse(response)
-
-    def getLaser(self):
-        """Returns the laser properties from the server as a dictionary"""
-        response = self.serverGet('/lokarria/laser/properties')
-        if (response.status == 200):
-            laserData = response.read()
-            response.close()
-            properties = json.loads(laserData)
-            beamCount = int((properties['EndAngle']-properties['StartAngle'])/properties['AngleIncrement'])
-            a = properties['StartAngle']#+properties['AngleIncrement']
-            angles = []
-            while a <= properties['EndAngle']:
-                angles.append(a)
-                a+=pi/180 #properties['AngleIncrement']
-            #angles.append(properties['EndAngle']-properties['AngleIncrement']/2)
-            return angles
-        else:
-            return UnexpectedResponse(response)
-
-    def getLaserAngles(self):
-        #Do we need this?
-        pass
 
     def getPose(self):
         """Reads the current position and orientation from the MRDS
@@ -226,7 +205,6 @@ def toHeading(q):
     """Converts quaternion to XY-plane Euler angle in radians"""
     v=cosAngle(q)
     angle=atan2(v['Y'],v['X'])
-    # Angle normalisation
     if angle>0:
         return angle
     else:
@@ -241,35 +219,35 @@ def coefficient(bearing):
     
 if __name__ == "__main__":
     
-    if len(sys.argv) >= 2: # if filename specified as argument, use instead of internal variable
+    if len(sys.argv) >= 2:                                                                  # if filename specified as argument, use instead of internal variable
         FILENAME = sys.argv[1]
         
     r1 = Robot(URL,FILENAME)
     print("Robot made.")
 
-    r1.setSpeed(0,0)                    #Set intial angular and linear velocity to zero
+    r1.setSpeed(0,0)                                                                        #Set intial angular and linear velocity to zero
     print('Robot intial coordinates and heading: X: ',r1.x,' Y: ',r1.y,' Heading: ',r1.heading)
 
     # Follow the predefined path
     print "Timer started"
     time_start=time.time() 
     
-    prevPointIndex=0 # Index of first point is zero
+    prevPointIndex=0                                                                        # Index of first point is zero
     atDestination=False
-    carrotPoint=r1.path[prevPointInd]['Pose']['Position'] # First point
+    carrotPoint=r1.path[prevPointIndex]['Pose']['Position']                                 # First point
     print "Path following started with path: ", FILENAME
     
     while not atDestination:
-        lookAheadPoint=r1.lookAhead(LOOK_AHEAD_DISTANCE) # The point a certain distance ahead of the robot
+        lookAheadPoint=r1.lookAhead(LOOK_AHEAD_DISTANCE)                                        # Find a point a certain distance ahead of the robot
         time.sleep(TICK_DURATION)
-        
+
         # Get range of path points to scan (as many as path will allow to a maximum of LA_THRESHOLD points ahead of current point)
         if len(r1.path)<prevPointIndex+LA_THRESHOLD:
-            lastIndex = len(r1.path)-1 # Scan points until end of path
-            if r1.distanceTo(r1.path[-1]['Pose']['Position'])<DISTANCE_THRESHOLD: # if we are within DISTANCE_THRESHOLD from the final point
+            lastIndex = len(r1.path)-1                                                          # Scan points until end of path
+            if r1.distanceTo(r1.path[-1]['Pose']['Position'])<DISTANCE_THRESHOLD:               # if we are within DISTANCE_THRESHOLD from the final point
                 atDestination=True
         else:
-            lastIndex = prevPointIndex+LA_THRESHOLD # Scan up to LA_THRESHOLD points ahead of current point
+            lastIndex = prevPointIndex+LA_THRESHOLD                                             # Scan up to LA_THRESHOLD points ahead of current point
             
         # Scan points for closest in path to lookAheadPoint, track its coordinates and index
         prevPointDistance=distanceBetween(r1.path[prevPointIndex]['Pose']['Position'], lookAheadPoint)
@@ -289,8 +267,8 @@ if __name__ == "__main__":
         r1.goToPoint(carrotPoint)
     
     # Destination Reached
-    time_traversed = time.time() - time_start                    # Stop the Timer
+    time_traversed = time.time() - time_start                                                   # Stop the Timer
     print "Path following completed successfully"
     print "Time taken for following the path = ",time_traversed
-    r1.setSpeed(0,0)                                            # Stop the robot
+    r1.setSpeed(0,0)                                                                            # Stop the robot
 
